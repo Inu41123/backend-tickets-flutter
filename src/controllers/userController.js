@@ -376,6 +376,36 @@ const googleLogin = async (req, res) => {
 };
 
 
+// ==========================================
+// 8. VERIFICAR TELÉFONO (Validado por Firebase SMS)
+// ==========================================
+const verificarTelefono = async (req, res) => {
+    try {
+        // Sacamos el ID del usuario directamente del Token (seguridad máxima)
+        const userId = req.user.id; 
+
+        // Buscamos el teléfono de este usuario y le cambiamos el estatus
+        const telefonoActualizado = await Telefono.findOneAndUpdate(
+            { usuarioId: userId },
+            { numeroVerificado: true },
+            { new: true } // Para que nos devuelva el dato ya actualizado
+        );
+
+        if (!telefonoActualizado) {
+            return res.status(404).json({ mensaje: 'No se encontró un teléfono registrado para este usuario.' });
+        }
+
+        res.status(200).json({ 
+            mensaje: '¡Teléfono verificado con éxito en la base de datos!',
+            telefono: telefonoActualizado
+        });
+    } catch (error) {
+        console.error("Error verificando teléfono:", error);
+        res.status(500).json({ mensaje: 'Error interno al verificar el teléfono', error: error.message });
+    }
+};
+
+
 module.exports = {
     registrarUsuario,
     loginUsuario,
@@ -386,5 +416,6 @@ module.exports = {
     solicitarCodigoRecuperacion,
     restablecerPassword,
     verificarCuenta,
-    googleLogin
+    googleLogin,
+    verificarTelefono
 };

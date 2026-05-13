@@ -11,7 +11,8 @@ const {
     solicitarCodigoRecuperacion, // <-- Te faltaba esta
     restablecerPassword,         // <-- Te faltaba esta
     obtenerTodosLosUsuarios,     // <-- Y te faltaba la del Admin
-    verificarCuenta
+    verificarCuenta,
+    verificarTelefono
 } = require('../controllers/userController');
 // const verificarToken = require('../middlewares/authMiddleware');
 
@@ -33,6 +34,10 @@ router.post('/login', authLimiter, loginUsuario);
 router.get('/perfil', verificarToken, obtenerPerfil);
 router.put('/perfil', verificarToken, actualizarPerfil);
 router.delete('/eliminar-cuenta', verificarToken, eliminarCuenta);
+
+// Verificación de teléfono (Requiere Token para validar identidad, pero no rol específico)
+router.post('/verificar-telefono', verificarToken, verificarTelefono);
+
 
 // Rutas de cambio de contraseña (Requieren Token para validar identidad, pero no rol específico)
 router.post('/solicitar-codigo', solicitarCodigoRecuperacion);

@@ -16,6 +16,10 @@ const TelefonoSchema = new mongoose.Schema({
         type: String,
         enum: ['Celular', 'Casa', 'Trabajo'],
         default: 'Celular'
+    },
+    numeroVerificado: {
+        type: Boolean,
+        default: false
     }
 }, { timestamps: true });
 
