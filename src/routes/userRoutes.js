@@ -35,13 +35,13 @@ router.put('/perfil', verificarToken, actualizarPerfil);
 router.delete('/eliminar-cuenta', verificarToken, eliminarCuenta);
 
 // Rutas de cambio de contraseña (Requieren Token para validar identidad, pero no rol específico)
-router.post('/solicitar-codigo', authLimiter, solicitarCodigoRecuperacion);
-router.post('/restablecer-password', authLimiter, restablecerPassword);
+router.post('/solicitar-codigo', solicitarCodigoRecuperacion);
+router.post('/restablecer-password', restablecerPassword);
 
 // Rutas de Admin (Requieren Token y Rol de Admin)
 router.get('/todos', verificarToken, esAdmin, obtenerTodosLosUsuarios);
 
-router.post('/verificar-cuenta', authLimiter, verificarCuenta);
+router.post('/verificar-cuenta', verificarCuenta);
 
 // Ruta para el Login de Google
 router.post('/google-login', googleLogin);
