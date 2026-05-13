@@ -40,25 +40,40 @@ const registrarUsuario = async (req, res) => {
         usuarioGuardado.codigoVerificacion = codigo;
         await usuarioGuardado.save();
 
-        // 2. Enviar el correo de bienvenida
-        const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
+        // ==========================================
+        // 2. ENVIAR EL CORREO (AISLADO PARA QUE NO TRUENE)
+        // ==========================================
+        try {
+            const transporter = nodemailer.createTransport({
+                service: 'gmail',
+                auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
+            });
+
+            await transporter.sendMail({
+                from: '"Soporte de Tickets" <no-reply@tusistema.com>',
+                to: usuarioGuardado.correo,
+                subject: 'Verifica tu cuenta',
+                html: `<h3>¡Bienvenido a la plataforma!</h3>
+                       <p>Tu código de verificación es: <strong>${codigo}</strong></p>
+                       <p>Ingrésalo en la aplicación para activar tu cuenta.</p>`
+            });
+            console.log("✅ Correo enviado con éxito a:", usuarioGuardado.correo);
+
+        } catch (errorCorreo) {
+            // Si el correo falla por culpa de Render/Google, entra aquí y NO MATA LA APP.
+            console.error("❌ Error de Nodemailer:", errorCorreo.message);
+            console.log("\n==========================================");
+            console.log(`💡 CÓDIGO DE EMERGENCIA PARA ${usuarioGuardado.correo}: ${codigo}`);
+            console.log("==========================================\n");
+        }
+
+        // 3. RESPONDEMOS SÍ O SÍ A FLUTTER PARA QUE QUITE LA RUEDITA
+        res.status(201).json({ 
+            mensaje: 'Usuario registrado. Revisa tu correo (o los logs de Render XD) para verificar tu cuenta.' 
         });
-
-        await transporter.sendMail({
-            from: '"Soporte de Tickets" <no-reply@tusistema.com>',
-            to: usuarioGuardado.correo,
-            subject: 'Verifica tu cuenta',
-            html: `<h3>¡Bienvenido a la plataforma!</h3>
-                   <p>Tu código de verificación es: <strong>${codigo}</strong></p>
-                   <p>Ingrésalo en la aplicación para activar tu cuenta.</p>`
-        });
-
-        res.status(201).json({ mensaje: 'Usuario registrado. Revisa tu correo para verificar tu cuenta.' });
-
 
     } catch (error) {
+        console.error("Error fatal en registro:", error);
         res.status(500).json({ mensaje: 'Error al registrar usuario', error });
     }
 };
@@ -279,7 +294,9 @@ const obtenerTodosLosUsuarios = async (req, res) => {
 
 
 
-
+console.log("==========================================");
+console.log(`CÓDIGO DE VERIFICACIÓN PARA ${nuevoUsuario.correo}: ${codigoVerificacion}`);
+console.log("==========================================");
 
 const verificarCuenta = async (req, res) => {
     try {
@@ -299,6 +316,8 @@ const verificarCuenta = async (req, res) => {
         res.status(500).json({ mensaje: 'Error al verificar cuenta', error });
     }
 };
+
+
 
 
 
