@@ -4,6 +4,7 @@ const Direccion = require('../models/Direccion');
 const Telefono = require('../models/Telefono');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { Resend } = require('resend'); // <-- IMPORTAMOS RESEND
 
 // ==========================================
 // 1. REGISTRO DE USUARIO
@@ -41,35 +42,30 @@ const registrarUsuario = async (req, res) => {
         await usuarioGuardado.save();
 
         // ==========================================
-        // 2. ENVIAR EL CORREO (AISLADO PARA QUE NO TRUENE)
+        // 2. ENVIAR EL CORREO CON RESEND
         // ==========================================
         try {
-            const transporter = nodemailer.createTransport({
-                service: 'gmail',
-                auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
-            });
-
-            await transporter.sendMail({
-                from: '"Soporte de Tickets" <no-reply@tusistema.com>',
+            const resend = new Resend(process.env.RESEND_API_KEY);
+            
+            await resend.emails.send({
+                // ⚠️ CAMBIAR AQUÍ: Pon el subdominio que te vayan a dar
+                from: 'Verificación <no-reply@tu-subdominio-oficial.com>', 
                 to: usuarioGuardado.correo,
-                subject: 'Verifica tu cuenta',
+                subject: 'Verifica tu cuenta - GestiónTech',
                 html: `<h3>¡Bienvenido a la plataforma!</h3>
                        <p>Tu código de verificación es: <strong>${codigo}</strong></p>
                        <p>Ingrésalo en la aplicación para activar tu cuenta.</p>`
             });
-            console.log("✅ Correo enviado con éxito a:", usuarioGuardado.correo);
+            console.log("Correo de registro enviado con Resend a:", usuarioGuardado.correo);
 
         } catch (errorCorreo) {
-            // Si el correo falla por culpa de Render/Google, entra aquí y NO MATA LA APP.
-            console.error("❌ Error de Nodemailer:", errorCorreo.message);
-            console.log("\n==========================================");
-            console.log(`💡 CÓDIGO DE EMERGENCIA PARA ${usuarioGuardado.correo}: ${codigo}`);
-            console.log("==========================================\n");
+            // Si el correo falla, NO MATA LA APP, solo avisa en consola
+            console.error("Error de Resend en registro:", errorCorreo);
         }
 
-        // 3. RESPONDEMOS SÍ O SÍ A FLUTTER PARA QUE QUITE LA RUEDITA
+        // 3. RESPONDEMOS SÍ O SÍ A FLUTTER
         res.status(201).json({ 
-            mensaje: 'Usuario registrado. Revisa tu correo (o los logs de Render XD) para verificar tu cuenta.' 
+            mensaje: 'Usuario registrado. Revisa tu correo para verificar tu cuenta.' 
         });
 
     } catch (error) {
@@ -78,9 +74,6 @@ const registrarUsuario = async (req, res) => {
     }
 };
 
-// ==========================================
-// 2. LOGIN (Generación de Token)
-// ==========================================
 // ==========================================
 // 2. LOGIN (Generación de Token)
 // ==========================================
@@ -94,7 +87,7 @@ const loginUsuario = async (req, res) => {
             return res.status(400).json({ mensaje: 'Credenciales inválidas' });
         }
 
-        // 2. Verificar si la cuenta está verificada (El código que causaba el error)
+        // 2. Verificar si la cuenta está verificada
         if (usuario.verificado === false) {
             return res.status(403).json({ mensaje: 'Cuenta no verificada. Por favor ingresa el código que enviamos a tu correo.' });
         }
@@ -121,13 +114,12 @@ const loginUsuario = async (req, res) => {
             }
         });
     } catch (error) {
-        // Le agregamos error.message para que si vuelve a fallar, nos diga el chisme completo en JSON
         res.status(500).json({ mensaje: 'Error en el login', error: error.message });
     }
 };
 
 // ==========================================
-// 3. OBTENER PERFIL COMPLETO (Con Dirección y Teléfono)
+// 3. OBTENER PERFIL COMPLETO
 // ==========================================
 const obtenerPerfil = async (req, res) => {
     try {
@@ -144,26 +136,23 @@ const obtenerPerfil = async (req, res) => {
 };
 
 // ==========================================
-// 4. ACTUALIZAR PERFIL (Usuario, Dirección o Teléfono)
+// 4. ACTUALIZAR PERFIL
 // ==========================================
 const actualizarPerfil = async (req, res) => {
     try {
         const userId = req.user.id;
         const { nombreCompleto, calle, numero, colonia, telefono } = req.body;
 
-        // Actualizar datos básicos
         if (nombreCompleto) {
             await User.findByIdAndUpdate(userId, { nombreCompleto });
         }
 
-        // Actualizar dirección
         await Direccion.findOneAndUpdate(
             { usuarioId: userId },
             { calle, numero, colonia },
             { new: true }
         );
 
-        // Actualizar teléfono
         if (telefono) {
             await Telefono.findOneAndUpdate(
                 { usuarioId: userId },
@@ -179,13 +168,12 @@ const actualizarPerfil = async (req, res) => {
 };
 
 // ==========================================
-// 5. ELIMINAR CUENTA (Borrado en Cascada)
+// 5. ELIMINAR CUENTA
 // ==========================================
 const eliminarCuenta = async (req, res) => {
     try {
         const userId = req.user.id;
 
-        // Borrar todo lo relacionado
         await Direccion.findOneAndDelete({ usuarioId: userId });
         await Telefono.findOneAndDelete({ usuarioId: userId });
         await User.findByIdAndDelete(userId);
@@ -197,56 +185,46 @@ const eliminarCuenta = async (req, res) => {
 };
 
 //=========================================
-// 6. Cambiar contraseña (Requiere un codigo enviado a correo actual para validar)
+// 6. SOLICITAR CÓDIGO DE RECUPERACIÓN (AHORA CON RESEND)
 //==========================================
-
-const nodemailer = require('nodemailer');
-
 const solicitarCodigoRecuperacion = async (req, res) => {
     try {
         const { correo } = req.body;
         const usuario = await User.findOne({ correo });
 
-        // Por seguridad, si el correo no existe, mandamos un OK genérico
-        // Así los atacantes no pueden usar este endpoint para "adivinar" qué correos están registrados
         if (!usuario) {
             return res.status(200).json({ mensaje: 'Si el correo existe, se enviará un código de recuperación.' });
         }
 
-        // Generar código de 6 dígitos aleatorio (ej. 482910)
         const codigo = Math.floor(100000 + Math.random() * 900000).toString();
         
-        // Guardar código y expiración (15 minutos a partir de ahorita)
         usuario.codigoRecuperacion = codigo;
         usuario.expiracionCodigo = Date.now() + 15 * 60 * 1000; 
         await usuario.save();
 
-        // Configurar nodemailer (Ejemplo usando Gmail)
-        const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: {
-                user: process.env.EMAIL_USER, // Tu correo en el .env
-                pass: process.env.EMAIL_PASS  // Tu "Contraseña de aplicación" de Google en el .env
-            }
-        });
+        try {
+            const resend = new Resend(process.env.RESEND_API_KEY);
+            
+            await resend.emails.send({
+                // ⚠️ CAMBIAR AQUÍ: Pon el subdominio que te vayan a dar
+                from: 'Soporte <soporte@tu-subdominio-oficial.com>', 
+                to: usuario.correo,
+                subject: 'Código de recuperación de contraseña',
+                html: `<h3>Recuperación de cuenta</h3>
+                       <p>Tu código de seguridad es: <strong>${codigo}</strong></p>
+                       <p>Este código expirará en 15 minutos. Si no solicitaste este cambio, ignora este correo.</p>`
+            });
+            console.log("Correo de recuperación enviado con Resend a:", usuario.correo);
 
-        // Enviar el correo
-        await transporter.sendMail({
-            from: '"Soporte de Tickets" <no-reply@tusistema.com>',
-            to: usuario.correo,
-            subject: 'Código de recuperación de contraseña',
-            html: `<h3>Recuperación de cuenta</h3>
-                   <p>Tu código de seguridad es: <strong>${codigo}</strong></p>
-                   <p>Este código expirará en 15 minutos. Si no solicitaste este cambio, ignora este correo.</p>`
-        });
+        } catch (errorCorreo) {
+            console.error("Error de Resend en recuperación:", errorCorreo);
+        }
 
         res.status(200).json({ mensaje: 'Código enviado al correo proporcionado.' });
     } catch (error) {
         res.status(500).json({ mensaje: 'Error al solicitar el código', error });
     }
 };
-
-
 
 const restablecerPassword = async (req, res) => {
     try {
@@ -255,7 +233,7 @@ const restablecerPassword = async (req, res) => {
         const usuario = await User.findOne({
             correo,
             codigoRecuperacion: codigo,
-            expiracionCodigo: { $gt: Date.now() } // $gt significa "greater than" (mayor que la hora actual)
+            expiracionCodigo: { $gt: Date.now() } 
         });
 
         if (!usuario) {
@@ -276,13 +254,9 @@ const restablecerPassword = async (req, res) => {
     }
 };
 
-
-
-
 //=========================================
-// 7.- Traer todos los usuarios (Solo admin) para mostrar en un panel de administración
+// 7.- TRAER TODOS LOS USUARIOS
 //==========================================
-
 const obtenerTodosLosUsuarios = async (req, res) => {
     try {
         const usuarios = await User.find().select('-password');
@@ -302,7 +276,7 @@ const verificarCuenta = async (req, res) => {
         }
 
         usuario.verificado = true;
-        usuario.codigoVerificacion = null; // Limpiamos el código
+        usuario.codigoVerificacion = null;
         await usuario.save();
 
         res.status(200).json({ mensaje: 'Cuenta verificada con éxito. Ya puedes iniciar sesión.' });
@@ -311,53 +285,42 @@ const verificarCuenta = async (req, res) => {
     }
 };
 
-
-
-
-
-const { OAuth2Client } = require('google-auth-library');
-// Asegúrate de tener tu GOOGLE_CLIENT_ID en tu archivo .env
-const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID); 
-
 // ==========================================
 // LOGIN CON GOOGLE
 // ==========================================
+const { OAuth2Client } = require('google-auth-library');
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID); 
+
 const googleLogin = async (req, res) => {
     try {
-        const { token } = req.body; // El Token gigante que nos manda Flutter
+        const { token } = req.body; 
 
-        // 1. Le preguntamos a Google: "¿Este token es real?"
         const ticket = await client.verifyIdToken({
             idToken: token,
             audience: process.env.GOOGLE_CLIENT_ID, 
         });
         
-        // 2. Sacamos los datos del usuario de Gmail
         const { name, email, picture } = ticket.getPayload();
 
-        // 3. Buscamos si ya estaba registrado en tu BD
         let usuario = await User.findOne({ correo: email });
 
         if (!usuario) {
-            // Si es nuevo, lo registramos en MongoDB
             const salt = await bcrypt.genSalt(10);
-            const passwordHash = await bcrypt.hash(Math.random().toString(36), salt); // Pass aleatorio
+            const passwordHash = await bcrypt.hash(Math.random().toString(36), salt); 
 
             usuario = new User({
                 nombreCompleto: name,
                 correo: email,
                 password: passwordHash,
-                verificado: true // Viene de Google, ya es de confianza
+                verificado: true 
             });
 
             const usuarioGuardado = await usuario.save();
 
-            // Creamos sus tablas extra para que no truene tu Perfil
             await new Direccion({ usuarioId: usuarioGuardado._id, calle: 'Pendiente' }).save();
             await new Telefono({ usuarioId: usuarioGuardado._id, numero: '0000000000' }).save();
         }
 
-        // 4. Le damos TU propio Token JWT para que navegue por la app
         const sessionToken = jwt.sign(
             { id: usuario._id, rol: usuario.rol },
             process.env.JWT_SECRET || 'firma_secreta_provisional',
@@ -375,20 +338,17 @@ const googleLogin = async (req, res) => {
     }
 };
 
-
 // ==========================================
 // 8. VERIFICAR TELÉFONO (Validado por Firebase SMS)
 // ==========================================
 const verificarTelefono = async (req, res) => {
     try {
-        // Sacamos el ID del usuario directamente del Token (seguridad máxima)
         const userId = req.user.id; 
 
-        // Buscamos el teléfono de este usuario y le cambiamos el estatus
         const telefonoActualizado = await Telefono.findOneAndUpdate(
             { usuarioId: userId },
             { numeroVerificado: true },
-            { new: true } // Para que nos devuelva el dato ya actualizado
+            { new: true } 
         );
 
         if (!telefonoActualizado) {
@@ -404,7 +364,6 @@ const verificarTelefono = async (req, res) => {
         res.status(500).json({ mensaje: 'Error interno al verificar el teléfono', error: error.message });
     }
 };
-
 
 module.exports = {
     registrarUsuario,
