@@ -292,12 +292,6 @@ const obtenerTodosLosUsuarios = async (req, res) => {
     }
 };
 
-
-
-console.log("==========================================");
-console.log(`CÓDIGO DE VERIFICACIÓN PARA ${nuevoUsuario.correo}: ${codigoVerificacion}`);
-console.log("==========================================");
-
 const verificarCuenta = async (req, res) => {
     try {
         const { correo, codigo } = req.body;
